@@ -36,6 +36,20 @@ element:
 
 cast : ('int' | 'float' | 'str' | 'bool') '(' value ')';
 
+ordering: sort | shuffle;
+sort :
+    'sort' '('
+        (value (',' value)* | 'list' '=' '[' value (',' value)* ']')
+        (',' 'reverse' '=' BOOL)?
+    ')'
+;
+
+shuffle:
+    'shuffle' '('
+        (value (',' value)* | 'list' '=' '[' value (',' value)* ']')
+    ')'
+;
+
 simpleChoiceSweep: element (',' element)+;          // value1,value2,value3
 
 choiceSweep:

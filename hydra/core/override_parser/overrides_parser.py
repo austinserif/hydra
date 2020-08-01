@@ -84,7 +84,7 @@ class ChoiceSweep(Sweep):
     # simple form: a,b,c
     # explicit form: choices(a,b,c)
     simple_form: bool
-    choices: List[ParsedElementType]
+    list: List[ParsedElementType]
     tags: Set[str] = field(default_factory=set)
 
 
@@ -153,11 +153,11 @@ class Cast:
             return ret_dict
         elif isinstance(value, ChoiceSweep):
             choices = []
-            for item in value.choices:
+            for item in value.list:
                 choice = Cast._convert(value=item, cast_type=cast_type)
                 assert isinstance(choice, (str, int, bool, float, list, dict))
                 choices.append(choice)
-            return ChoiceSweep(simple_form=value.simple_form, choices=list(choices))
+            return ChoiceSweep(simple_form=value.simple_form, list=list(choices))
         elif isinstance(value, IntervalSweep):
             raise HydraException(
                 "Intervals are always interpreted as floating-point intervals and cannot be casted"
@@ -240,6 +240,22 @@ class Key:
     key_or_group: str
     pkg1: Optional[str] = None
     pkg2: Optional[str] = None
+
+
+@dataclass
+class Ordering:
+    ...
+
+
+@dataclass
+class Sort(Ordering):
+    list: List[Union[ParsedElementType, ChoiceSweep, RangeSweep]]
+    reverse: bool = False
+
+
+@dataclass
+class Shuffle(Ordering):
+    list: List[ParsedElementType]
 
 
 @dataclass
@@ -639,7 +655,7 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
                     value_type = ValueType.SIMPLE_CHOICE_SWEEP
                 else:
                     value_type = ValueType.CHOICE_SWEEP
-                value = value.choices
+                value = value.list
             elif isinstance(value, IntervalSweep):
                 tags = value.tags
                 value_type = ValueType.INTERVAL_SWEEP
@@ -713,7 +729,7 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
             predicate=lambda x: not self.is_matching_terminal(x, ",")
         ):
             ret.append(self.visitValue(child))
-        return ChoiceSweep(simple_form=True, choices=ret)
+        return ChoiceSweep(simple_form=True, list=ret)
 
     def visitChoiceSweep(self, ctx: OverrideParser.ChoiceSweepContext) -> ChoiceSweep:
         def collect(start: int, end: int, simple_form: bool) -> ChoiceSweep:
@@ -727,7 +743,7 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
                     ret.append(self.visitElement(child))
                 else:
                     assert False
-            return ChoiceSweep(choices=ret, simple_form=simple_form)
+            return ChoiceSweep(list=ret, simple_form=simple_form)
 
         if self.is_matching_terminal(ctx.getChild(0), "choice"):
             if self.is_matching_terminal(ctx.getChild(2), "list"):
@@ -781,6 +797,23 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
             (int, float, bool, str, list, dict, ChoiceSweep, RangeSweep, IntervalSweep),
         )
         return Cast(cast_type=cast_type, value=value)
+
+    def visitSort(self, ctx: OverrideParser.SortContext) -> Sort:
+        assert self.is_matching_terminal(ctx.getChild(0), "sort")
+        assert self.is_matching_terminal(ctx.getChild(1), "(")
+        assert self.is_matching_terminal(ctx.getChild(-1), ")")
+        lst = []
+        while True:
+            val = ctx.value(len(lst))
+            if val is None:
+                break
+            lst.append(self.visitValue(val))
+        if self.is_matching_terminal(ctx.getChild(-4), "reverse"):
+            reverse = ctx.getChild(-2).getText().lower() == "true"
+        else:
+            reverse = False
+        ret = Sort(list=lst, reverse=reverse)
+        return ret
 
 
 class HydraErrorListener(ErrorListener):  # type: ignore

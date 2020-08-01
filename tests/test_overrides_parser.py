@@ -20,6 +20,7 @@ from hydra.core.override_parser.overrides_parser import (
     Quote,
     QuotedString,
     RangeSweep,
+    Sort,
     Sweep,
     ValueType,
 )
@@ -75,21 +76,19 @@ def test_element(value: str, expected: Any) -> None:
         pytest.param("[1 ]", [1], id="value:list1_ws"),
         pytest.param("[1, 2, 3]", [1, 2, 3], id="value:list_ws"),
         pytest.param(
-            "1,2,3", ChoiceSweep(choices=[1, 2, 3], simple_form=True), id="sweep:int"
+            "1,2,3", ChoiceSweep(list=[1, 2, 3], simple_form=True), id="sweep:int"
         ),
         pytest.param(
-            "1, 2, 3",
-            ChoiceSweep(choices=[1, 2, 3], simple_form=True),
-            id="sweep:int_ws",
+            "1, 2, 3", ChoiceSweep(list=[1, 2, 3], simple_form=True), id="sweep:int_ws",
         ),
         pytest.param(
             "${a}, ${b}, ${c}",
-            ChoiceSweep(choices=["${a}", "${b}", "${c}"], simple_form=True),
+            ChoiceSweep(list=["${a}", "${b}", "${c}"], simple_form=True),
             id="sweep:interpolations",
         ),
         pytest.param(
             "[a,b],[c,d]",
-            ChoiceSweep(choices=[["a", "b"], ["c", "d"]], simple_form=True),
+            ChoiceSweep(list=[["a", "b"], ["c", "d"]], simple_form=True),
             id="sweep:lists",
         ),
         # bool
@@ -162,27 +161,27 @@ def test_dict_value(value: str, expected: Any) -> None:
     [
         pytest.param(
             "choice(a)",
-            ChoiceSweep(choices=["a"], simple_form=False),
+            ChoiceSweep(list=["a"], simple_form=False),
             id="sweep:choice(a)",
         ),
         pytest.param(
             "choice(a,b)",
-            ChoiceSweep(choices=["a", "b"], simple_form=False),
+            ChoiceSweep(list=["a", "b"], simple_form=False),
             id="sweep:choice(a,b)",
         ),
         pytest.param(
             "choice (a,b)",
-            ChoiceSweep(choices=["a", "b"], simple_form=False),
+            ChoiceSweep(list=["a", "b"], simple_form=False),
             id="sweep:choice (a,b)",
         ),
         pytest.param(
             "choice( 10 , 20 )",
-            ChoiceSweep(choices=[10, 20], simple_form=False),
+            ChoiceSweep(list=[10, 20], simple_form=False),
             id="sweep:choice( 10 , 20 )",
         ),
         pytest.param(
             "choice(list=[10,20])",
-            ChoiceSweep(choices=[10, 20], simple_form=False),
+            ChoiceSweep(list=[10, 20], simple_form=False),
             id="sweep:choice:named",
         ),
     ],
@@ -196,13 +195,11 @@ def test_choice_sweep_parsing(value: str, expected: Any) -> None:
     "value,expected",
     [
         pytest.param(
-            "a,b",
-            ChoiceSweep(choices=["a", "b"], simple_form=True),
-            id="sweep:choice(a)",
+            "a,b", ChoiceSweep(list=["a", "b"], simple_form=True), id="sweep:choice(a)",
         ),
         pytest.param(
             "a , b",
-            ChoiceSweep(choices=["a", "b"], simple_form=True),
+            ChoiceSweep(list=["a", "b"], simple_form=True),
             id="sweep:choice(a)",
         ),
     ],
@@ -944,9 +941,7 @@ def test_tag_list(value: str, expected: str) -> None:
     "value, expected",
     [
         pytest.param(
-            "choice(a,b)",
-            ChoiceSweep(choices=["a", "b"], simple_form=False),
-            id="choice",
+            "choice(a,b)", ChoiceSweep(list=["a", "b"], simple_form=False), id="choice",
         ),
         pytest.param("range(1,10)", RangeSweep(start=1, stop=10), id="range"),
         pytest.param("range(1,10,2)", RangeSweep(start=1, stop=10, step=2), id="range"),
@@ -965,17 +960,17 @@ def test_sweep(value: str, expected: str) -> None:
     [
         pytest.param(
             "tag(choice(a,b))",
-            ChoiceSweep(simple_form=False, choices=["a", "b"]),
+            ChoiceSweep(simple_form=False, list=["a", "b"]),
             id="choice:no_tags",
         ),
         pytest.param(
             "tag (choice(a,b))",
-            ChoiceSweep(simple_form=False, choices=["a", "b"]),
+            ChoiceSweep(simple_form=False, list=["a", "b"]),
             id="choice:no_tags",
         ),
         pytest.param(
             "tag(tag1,tag2,choice(a,b))",
-            ChoiceSweep(simple_form=False, choices=["a", "b"], tags={"tag1", "tag2"}),
+            ChoiceSweep(simple_form=False, list=["a", "b"], tags={"tag1", "tag2"}),
             id="choice",
         ),
         pytest.param(
@@ -1007,6 +1002,63 @@ def test_tagged_sweep(value: str, expected: str) -> None:
 
 
 @pytest.mark.parametrize(  # type: ignore
+    "value, expected",
+    [
+        pytest.param(
+            "sort(1,2,3)", Sort(list=[1, 2, 3], reverse=False), id="sort:list"
+        ),
+        pytest.param(
+            "sort(list=[1,2,3])",
+            Sort(list=[1, 2, 3], reverse=False),
+            id="sort:named_list",
+        ),
+        pytest.param(
+            "sort(1,2,3, reverse=True)",
+            Sort(list=[1, 2, 3], reverse=True),
+            id="sort:named_list:rev",
+        ),
+        pytest.param(
+            "sort(list=[1,2,3], reverse=True)",
+            Sort(list=[1, 2, 3], reverse=True),
+            id="sort:named_list:rev",
+        ),
+        pytest.param(
+            "sort(choice(1,2,3))",
+            Sort(
+                list=[ChoiceSweep(simple_form=False, list=[1, 2, 3], tags=set())],
+                reverse=False,
+            ),
+            id="sort:choice",
+        ),
+        pytest.param(
+            "sort(choice(1,2,3), reverse=True)",
+            Sort(
+                list=[ChoiceSweep(simple_form=False, list=[1, 2, 3], tags=set())],
+                reverse=True,
+            ),
+            id="sort:choice:rev",
+        ),
+        pytest.param(
+            "sort(tag(a,b,choice(1,2,3)), reverse=True)",
+            Sort(
+                list=[ChoiceSweep(simple_form=False, list=[1, 2, 3], tags={"a", "b"})],
+                reverse=True,
+            ),
+            id="sort:tag:choice:rev",
+        ),
+        pytest.param(
+            "sort(range(10,1))",
+            Sort(list=[RangeSweep(start=10, stop=1)], reverse=False),
+            id="sort:range",
+        ),
+    ],
+)
+def test_sort(value: str, expected: str) -> None:
+    ret = OverridesParser.parse_rule(value, "sort")
+    assert ret == expected
+
+
+@pytest.mark.parametrize(  # type: ignore
     "cast_type",
     [
         pytest.param(CastType.INT, id="int-cast"),
@@ -1023,12 +1075,10 @@ def test_tagged_sweep(value: str, expected: str) -> None:
         pytest.param("3.14", 3.14, id="float"),
         pytest.param("true", True, id="bool"),
         pytest.param(
-            "a,b", ChoiceSweep(simple_form=True, choices=["a", "b"]), id="choice"
+            "a,b", ChoiceSweep(simple_form=True, list=["a", "b"]), id="choice"
         ),
         pytest.param(
-            "choice(a,b)",
-            ChoiceSweep(simple_form=False, choices=["a", "b"]),
-            id="choice",
+            "choice(a,b)", ChoiceSweep(simple_form=False, list=["a", "b"]), id="choice",
         ),
         pytest.param("range(1,20,2)", RangeSweep(start=1, stop=20, step=2), id="range"),
         pytest.param(
@@ -1284,10 +1334,10 @@ class CastResults:
         pytest.param(
             "choice(0,1)",
             CastResults(
-                int=ChoiceSweep(simple_form=False, choices=[0, 1]),
-                float=ChoiceSweep(simple_form=False, choices=[0.0, 1.0]),
-                str=ChoiceSweep(simple_form=False, choices=["0", "1"]),
-                bool=ChoiceSweep(simple_form=False, choices=[False, True]),
+                int=ChoiceSweep(simple_form=False, list=[0, 1]),
+                float=ChoiceSweep(simple_form=False, list=[0.0, 1.0]),
+                str=ChoiceSweep(simple_form=False, list=["0", "1"]),
+                bool=ChoiceSweep(simple_form=False, list=[False, True]),
             ),
             id="choice(0,1)",
         ),
@@ -1295,14 +1345,14 @@ class CastResults:
             "choice(a,b)",
             CastResults(
                 int=CastResults.error(
-                    "Error casting `ChoiceSweep(simple_form=False, choices=['a', 'b'], tags=set())`"
+                    "Error casting `ChoiceSweep(simple_form=False, list=['a', 'b'], tags=set())`"
                     " (ChoiceSweep) to int"
                 ),
                 float=CastResults.error(
-                    "Error casting `ChoiceSweep(simple_form=False, choices=['a', 'b'], tags=set())`"
+                    "Error casting `ChoiceSweep(simple_form=False, list=['a', 'b'], tags=set())`"
                     " (ChoiceSweep) to float"
                 ),
-                str=ChoiceSweep(simple_form=False, choices=["a", "b"]),
+                str=ChoiceSweep(simple_form=False, list=["a", "b"]),
                 bool=CastResults.error("Cannot cast 'a' to bool"),
             ),
             id="choice(a,b)",
@@ -1311,14 +1361,14 @@ class CastResults:
             "choice(1,a)",
             CastResults(
                 int=CastResults.error(
-                    "Error casting `ChoiceSweep(simple_form=False, choices=[1, 'a'], tags=set())` "
+                    "Error casting `ChoiceSweep(simple_form=False, list=[1, 'a'], tags=set())` "
                     "(ChoiceSweep) to int"
                 ),
                 float=CastResults.error(
-                    "Error casting `ChoiceSweep(simple_form=False, choices=[1, 'a'], tags=set())` "
+                    "Error casting `ChoiceSweep(simple_form=False, list=[1, 'a'], tags=set())` "
                     "(ChoiceSweep) to float"
                 ),
-                str=ChoiceSweep(simple_form=False, choices=["1", "a"]),
+                str=ChoiceSweep(simple_form=False, list=["1", "a"]),
                 bool=CastResults.error("Cannot cast 'a' to bool"),
             ),
             id="choice(1,a)",

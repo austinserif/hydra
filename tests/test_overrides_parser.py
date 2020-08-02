@@ -106,11 +106,24 @@ def test_element(value: str, expected: Any) -> None:
         pytest.param("bool(10.0)", True, id="bool(10.0)"),
         pytest.param("float(10)", 10.0, id="float(10)"),
         pytest.param("float(float(10))", 10.0, id="float(float(10))"),
+        # ordering
+        pytest.param("sort(3,2,1)", [1, 2, 3], id="sort(3,2,1)"),
+        pytest.param(
+            "sort(10)",
+            pytest.raises(
+                HydraException, match=re.escape("mismatched input ')' expecting ','")
+            ),
+            id="sort(10)",
+        ),
     ],
 )
 def test_value(value: str, expected: Any) -> None:
-    ret = OverridesParser.parse_rule(value, "value")
-    assert ret == expected
+    if isinstance(expected, RaisesContext):
+        with expected:
+            OverridesParser.parse_rule(value, "value")
+    else:
+        ret = OverridesParser.parse_rule(value, "value")
+        assert ret == expected
 
 
 @pytest.mark.parametrize(  # type: ignore
@@ -1018,6 +1031,9 @@ def test_tagged_sweep(value: str, expected: str) -> None:
             id="sort:named_list:rev",
         ),
         pytest.param(
+            "sort(list=[])", Sort(list=[], reverse=False), id="sort:named_list:empty",
+        ),
+        pytest.param(
             "sort(list=[1,2,3], reverse=True)",
             Sort(list=[1, 2, 3], reverse=True),
             id="sort:named_list:rev",
@@ -1025,7 +1041,7 @@ def test_tagged_sweep(value: str, expected: str) -> None:
         pytest.param(
             "sort(choice(1,2,3))",
             Sort(
-                list=[ChoiceSweep(simple_form=False, list=[1, 2, 3], tags=set())],
+                list=ChoiceSweep(simple_form=False, list=[1, 2, 3], tags=set()),
                 reverse=False,
             ),
             id="sort:choice",
@@ -1033,7 +1049,7 @@ def test_tagged_sweep(value: str, expected: str) -> None:
         pytest.param(
             "sort(choice(1,2,3), reverse=True)",
             Sort(
-                list=[ChoiceSweep(simple_form=False, list=[1, 2, 3], tags=set())],
+                list=ChoiceSweep(simple_form=False, list=[1, 2, 3], tags=set()),
                 reverse=True,
             ),
             id="sort:choice:rev",
@@ -1041,20 +1057,30 @@ def test_tagged_sweep(value: str, expected: str) -> None:
         pytest.param(
             "sort(tag(a,b,choice(1,2,3)), reverse=True)",
             Sort(
-                list=[ChoiceSweep(simple_form=False, list=[1, 2, 3], tags={"a", "b"})],
+                list=ChoiceSweep(simple_form=False, list=[1, 2, 3], tags={"a", "b"}),
                 reverse=True,
             ),
             id="sort:tag:choice:rev",
         ),
         pytest.param(
             "sort(range(10,1))",
-            Sort(list=[RangeSweep(start=10, stop=1)], reverse=False),
+            Sort(list=RangeSweep(start=10, stop=1), reverse=False),
             id="sort:range",
         ),
     ],
 )
 def test_sort(value: str, expected: str) -> None:
     ret = OverridesParser.parse_rule(value, "sort")
+    assert ret == expected
+
+
+# TODO: add shuffle example
+@pytest.mark.parametrize(  # type: ignore
+    "value, expected",
+    [pytest.param("sort(1,2,3)", Sort(list=[1, 2, 3], reverse=False), id="sort:list"),],
+)
+def test_ordering(value: str, expected: str) -> None:
+    ret = OverridesParser.parse_rule(value, "ordering")
     assert ret == expected
 
 

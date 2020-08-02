@@ -23,11 +23,11 @@ value:
       element
     | simpleChoiceSweep                         // a,b,c
     | sweep                                     // choice(a,b,c), range(1,10,2), interval(0,3)
-    | taggedSweep                               // tag(log,interval(1, 1000)), tag(fidelity,range(1,100))
     | cast
+    | ordering
 ;
 
-sweep: choiceSweep | rangeSweep | intervalSweep;
+sweep: choiceSweep | rangeSweep | intervalSweep | taggedSweep;
 element:
       primitive
     | listValue
@@ -38,8 +38,12 @@ cast : ('int' | 'float' | 'str' | 'bool') '(' value ')';
 
 ordering: sort | shuffle;
 sort :
-    'sort' '('
-        (value (',' value)* | 'list' '=' '[' value (',' value)* ']')
+    'sort' '(' (
+          primitive (',' primitive)+
+        | sweep
+        | cast
+        | 'list' '=' '[' (primitive (',' primitive)*)? ']'
+        )
         (',' 'reverse' '=' BOOL)?
     ')'
 ;

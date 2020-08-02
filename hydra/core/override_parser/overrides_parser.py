@@ -2,6 +2,8 @@
 import decimal
 import sys
 import warnings
+from abc import abstractmethod
+from copy import copy
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, Iterable, List, Optional, Set, Union
@@ -244,18 +246,39 @@ class Key:
 
 @dataclass
 class Ordering:
-    ...
+    # TODO sequence?
+    list: Union[List[ParsedElementType], ChoiceSweep, RangeSweep]
+
+    @abstractmethod
+    def order(self) -> Union[List[ParsedElementType], ChoiceSweep, RangeSweep]:
+        ...
 
 
 @dataclass
 class Sort(Ordering):
-    list: List[Union[ParsedElementType, ChoiceSweep, RangeSweep]]
+
     reverse: bool = False
+
+    @abstractmethod
+    def order(self) -> Union[List[ParsedElementType], ChoiceSweep, RangeSweep]:
+        def _sorted(lst: List[Any]) -> List[Any]:
+            return sorted(lst, reverse=self.reverse)
+
+        if isinstance(self.list, ChoiceSweep):
+            ret = copy(self.list)
+            ret.list = _sorted(self.list.list)
+            return ret
+        elif isinstance(self.list, RangeSweep):
+            assert False  # TODO
+        else:
+            return _sorted(self.list)
 
 
 @dataclass
 class Shuffle(Ordering):
-    list: List[ParsedElementType]
+    @abstractmethod
+    def order(self) -> Union[List[ParsedElementType], ChoiceSweep, RangeSweep]:
+        ...
 
 
 @dataclass
@@ -614,6 +637,8 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
         else:
             assert len(child_ret) == 1
             ret = child_ret[0]
+            if isinstance(ret, Ordering):
+                ret = ret.order()
             if isinstance(ret, Cast):
                 ret = ret.convert()
             return ret  # type: ignore
@@ -798,22 +823,34 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
         )
         return Cast(cast_type=cast_type, value=value)
 
+    def visitOrdering(self, ctx: OverrideParser.OrderingContext) -> Ordering:
+        ret = self.visitChildren(ctx)
+        assert isinstance(ret, list) and len(ret) == 1
+        r = ret[0]
+        assert isinstance(r, (Ordering))
+        return r
+
     def visitSort(self, ctx: OverrideParser.SortContext) -> Sort:
         assert self.is_matching_terminal(ctx.getChild(0), "sort")
         assert self.is_matching_terminal(ctx.getChild(1), "(")
         assert self.is_matching_terminal(ctx.getChild(-1), ")")
-        lst = []
-        while True:
-            val = ctx.value(len(lst))
-            if val is None:
-                break
-            lst.append(self.visitValue(val))
+
         if self.is_matching_terminal(ctx.getChild(-4), "reverse"):
             reverse = ctx.getChild(-2).getText().lower() == "true"
         else:
             reverse = False
-        ret = Sort(list=lst, reverse=reverse)
-        return ret
+
+        sweep = ctx.sweep()
+        if sweep is not None:
+            return Sort(list=self.visitSweep(sweep), reverse=reverse)
+        else:
+            lst = []
+            while True:
+                val = ctx.primitive(len(lst))
+                if val is None:
+                    break
+                lst.append(self.visitPrimitive(val))
+            return Sort(list=lst, reverse=reverse)
 
 
 class HydraErrorListener(ErrorListener):  # type: ignore

@@ -107,9 +107,16 @@ def test_element(value: str, expected: Any) -> None:
         pytest.param("float(10)", 10.0, id="float(10)"),
         pytest.param("float(float(10))", 10.0, id="float(float(10))"),
         # ordering
-        pytest.param("sort(3,2,1)", [1, 2, 3], id="sort(3,2,1)"),
+        pytest.param("sort([2,3,1])", [1, 2, 3], id="sort([3,2,1])"),
         pytest.param(
-            "sort(a,c,b,reverse=true)", ["c", "b", "a"], id="sort(a,c,b,reverse=true)"
+            "sort(3,2,1)",
+            ChoiceSweep(simple_form=True, list=[1, 2, 3], tags=set()),
+            id="sort(3,2,1)",
+        ),
+        pytest.param(
+            "sort(a,c,b,reverse=true)",
+            ChoiceSweep(simple_form=True, list=["c", "b", "a"], tags=set()),
+            id="sort(a,c,b,reverse=true)",
         ),
         pytest.param(
             "sort(10)",
@@ -119,7 +126,8 @@ def test_element(value: str, expected: Any) -> None:
             id="sort(10)",
         ),
         pytest.param("float(sort(3,2,1))", [1.0, 2.0, 3.0], id="float(sort(3,2,1))"),
-        pytest.param("sort(3,2,str(1))", ["1", 2, 3], id="float(sort(3,2,1))"),
+        pytest.param("sort(float(3,2,1))", [1.0, 2.0, 3.0], id="sort(float(3,2,1))"),
+        pytest.param("sort(3,2,str(1))", ["1", 2, 3], id="sort(3,2,str(1))"),
     ],
 )
 def test_value(value: str, expected: Any) -> None:
@@ -202,9 +210,14 @@ def test_dict_value(value: str, expected: Any) -> None:
             ChoiceSweep(list=[10, 20], simple_form=False),
             id="sweep:choice:named",
         ),
+        pytest.param(
+            "str(choice(1,2))",
+            ChoiceSweep(list=["1", "2"], simple_form=False),
+            id="sweep:choice(a,b)",
+        ),
     ],
 )
-def test_choice_sweep_parsing(value: str, expected: Any) -> None:
+def test_choice_sweep(value: str, expected: Any) -> None:
     ret = OverridesParser.parse_rule(value, "choiceSweep")
     assert ret == expected
 
@@ -219,6 +232,11 @@ def test_choice_sweep_parsing(value: str, expected: Any) -> None:
             "a , b",
             ChoiceSweep(list=["a", "b"], simple_form=True),
             id="sweep:choice(a)",
+        ),
+        pytest.param(
+            "str(1,2,3)",
+            ChoiceSweep(list=["1", "2", "3"], simple_form=True),
+            id="str(1,2,3)",
         ),
     ],
 )
@@ -1024,25 +1042,20 @@ def test_tagged_sweep(value: str, expected: str) -> None:
     "value, expected",
     [
         pytest.param(
-            "sort(1,2,3)", Sort(list=[1, 2, 3], reverse=False), id="sort:list"
+            "sort(1,2,3)",
+            Sort(
+                list=ChoiceSweep(simple_form=True, list=[1, 2, 3], tags=set()),
+                reverse=False,
+            ),
+            id="sort:choice:simple",
         ),
         pytest.param(
-            "sort(list=[1,2,3])",
-            Sort(list=[1, 2, 3], reverse=False),
-            id="sort:named_list",
-        ),
-        pytest.param(
-            "sort(1,2,3, reverse=True)",
-            Sort(list=[1, 2, 3], reverse=True),
-            id="sort:named_list:rev",
-        ),
-        pytest.param(
-            "sort(list=[])", Sort(list=[], reverse=False), id="sort:named_list:empty",
-        ),
-        pytest.param(
-            "sort(list=[1,2,3], reverse=True)",
-            Sort(list=[1, 2, 3], reverse=True),
-            id="sort:named_list:rev",
+            "sort(1,2,3,reverse=True)",
+            Sort(
+                list=ChoiceSweep(simple_form=True, list=[1, 2, 3], tags=set()),
+                reverse=True,
+            ),
+            id="sort:choice:simple:rev",
         ),
         pytest.param(
             "sort(choice(1,2,3))",
@@ -1075,15 +1088,66 @@ def test_tagged_sweep(value: str, expected: str) -> None:
         ),
     ],
 )
+def test_sweep_sort(value: str, expected: str) -> None:
+    ret = OverridesParser.parse_rule(value, "sweepSort")
+    assert ret == expected
+
+
+@pytest.mark.parametrize(  # type: ignore
+    "value, expected",
+    [
+        pytest.param(
+            "sort([1,2,3])", Sort(list=[1, 2, 3], reverse=False), id="sort:named_list",
+        ),
+        pytest.param(
+            "sort(choice(1,2,3))",
+            Sort(
+                list=ChoiceSweep(simple_form=False, list=[1, 2, 3], tags=set()),
+                reverse=False,
+            ),
+            id="sort:choice",
+        ),
+    ],
+)
 def test_sort(value: str, expected: str) -> None:
     ret = OverridesParser.parse_rule(value, "sort")
+    assert ret == expected
+
+
+@pytest.mark.parametrize(  # type: ignore
+    "value, expected",
+    [
+        pytest.param(
+            "sort([1,2,3])", Sort(list=[1, 2, 3], reverse=False), id="sort:named_list",
+        ),
+        pytest.param(
+            "sort(list=[1,2,3])",
+            Sort(list=[1, 2, 3], reverse=False),
+            id="sort:named_list",
+        ),
+        pytest.param(
+            "sort(list=[])", Sort(list=[], reverse=False), id="sort:named_list:empty",
+        ),
+        pytest.param(
+            "sort(list=[1,2,3], reverse=True)",
+            Sort(list=[1, 2, 3], reverse=True),
+            id="sort:named_list:rev",
+        ),
+    ],
+)
+def test_list_sort(value: str, expected: str) -> None:
+    ret = OverridesParser.parse_rule(value, "listSort")
     assert ret == expected
 
 
 # TODO: add shuffle example
 @pytest.mark.parametrize(  # type: ignore
     "value, expected",
-    [pytest.param("sort(1,2,3)", Sort(list=[1, 2, 3], reverse=False), id="sort:list"),],
+    [
+        pytest.param(
+            "sort([1,2,3])", Sort(list=[1, 2, 3], reverse=False), id="sort:list"
+        ),
+    ],
 )
 def test_ordering(value: str, expected: str) -> None:
     ret = OverridesParser.parse_rule(value, "ordering")
@@ -1114,10 +1178,10 @@ def test_ordering(value: str, expected: str) -> None:
         ),
         pytest.param("range(1,20,2)", RangeSweep(start=1, stop=20, step=2), id="range"),
         pytest.param(
-            "interval(0.0, 1.0)", IntervalSweep(start=0.0, end=1.0), id="interval"
+            "interval(0.0,1.0)", IntervalSweep(start=0.0, end=1.0), id="interval"
         ),
-        # TODO : test list
-        # TODO : test dict
+        pytest.param("[a,b,c]", ["a", "b", "c"], id="list"),
+        pytest.param("{a:10,b:20}", {"a": 10, "b": 20}, id="dict"),
     ],
 )
 def test_type_cast(value: str, expected_value: Any, cast_type: CastType) -> None:

@@ -6,9 +6,9 @@ from abc import abstractmethod
 from copy import copy
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Iterable, List, Optional, Set, Union
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Type, Union
 
-from antlr4 import TerminalNode, Token
+from antlr4 import RuleContext, TerminalNode, Token
 from antlr4.error.ErrorListener import ErrorListener
 from antlr4.error.Errors import LexerNoViableAltException, RecognitionException
 from antlr4.tree.Tree import ParseTree
@@ -135,10 +135,15 @@ class Cast:
 
     def convert(self) -> CastValueType:
         try:
-            return self._convert(value=self.value, cast_type=self.cast_type)
+            if isinstance(self.value, QuotedString):
+                value = self.value.text
+            else:
+                value = self.value
+
+            return self._convert(value=value, cast_type=self.cast_type)
         except (ValueError, OverflowError) as e:
             raise HydraException(
-                f"Error casting `{self.value}` ({type(self.value).__name__}) to {self.cast_type.name.lower()} : {e}"
+                f"Error casting `{value}` ({type(value).__name__}) to {self.cast_type.name.lower()} : {e}"
             ) from e
 
     @staticmethod
@@ -174,6 +179,8 @@ class Cast:
             assert isinstance(stop, (int, float))
             assert isinstance(step, (int, float))
             return RangeSweep(start=start, stop=stop, step=step)
+        elif isinstance(value, QuotedString):
+            value = value.text
 
         if cast_type == CastType.INT:
             return int(value)
@@ -535,7 +542,9 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
             ret = ctx.getText().strip()
         else:
             node = ctx.getChild(first_idx)
-            if node.symbol.type == OverrideLexer.QUOTED_VALUE:
+            if isinstance(node, OverrideParser.PrimitiveCastContext):
+                return self.visitPrimitiveCast(node).convert()
+            elif node.symbol.type == OverrideLexer.QUOTED_VALUE:
                 text = node.getText()
                 qc = text[0]
                 text = text[1:-1]
@@ -801,33 +810,75 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
         sweep.tags = self.visitTagList(taglist) if taglist is not None else set()
         return sweep
 
-    def visitCast(self, ctx: OverrideParser.CastContext) -> Cast:
-        cast_node = ctx.getChild(0)
-        if self.is_matching_terminal(cast_node, "int"):
-            cast_type = CastType.INT
-        elif self.is_matching_terminal(cast_node, "float"):
-            cast_type = CastType.FLOAT
-        elif self.is_matching_terminal(cast_node, "str"):
-            cast_type = CastType.STR
-        elif self.is_matching_terminal(cast_node, "bool"):
-            cast_type = CastType.BOOL
+    def _getCastType(self, node) -> CastType:
+        if self.is_matching_terminal(node, "int"):
+            return CastType.INT
+        elif self.is_matching_terminal(node, "float"):
+            return CastType.FLOAT
+        elif self.is_matching_terminal(node, "str"):
+            return CastType.STR
+        elif self.is_matching_terminal(node, "bool"):
+            return CastType.BOOL
         else:
-            assert False
-        assert self.is_matching_terminal(ctx.getChild(1), "(")
-        value = self.visitValue(ctx.value())
-        if isinstance(value, QuotedString):
-            value = value.text
-        assert isinstance(
-            value,
-            (int, float, bool, str, list, dict, ChoiceSweep, RangeSweep, IntervalSweep),
-        )
+            assert False, f"Unexpected cast type : {node.getText()}"
+
+    def visitPrimitiveCast(self, ctx: OverrideParser.PrimitiveCastContext) -> Cast:
+        return self._cast(ctx, "primitive", (int, float, bool, str, QuotedString))
+
+    def visitListCast(self, ctx: OverrideParser.ListCastContext) -> Cast:
+        return self._cast(ctx, "listValue", list)
+
+    def visitDictCast(self, ctx: OverrideParser.DictCastContext) -> Cast:
+        return self._cast(ctx, "dictValue", dict)
+
+    def visitChoiceCast(self, ctx: OverrideParser.ChoiceCastContext) -> Cast:
+        if ctx.simpleChoiceSweep() is not None:
+            return self._cast(ctx, "simpleChoiceSweep", ChoiceSweep)
+        else:
+            return self._cast(ctx, "choiceSweep", ChoiceSweep)
+
+    def visitRangeCast(self, ctx: OverrideParser.RangeCastContext) -> Cast:
+        return self._cast(ctx, "rangeSweep", RangeSweep)
+
+    def visitIntervalCast(self, ctx: OverrideParser.IntervalCastContext) -> Cast:
+        return self._cast(ctx, "intervalSweep", IntervalSweep)
+
+    def _cast(
+        self,
+        ctx: RuleContext,
+        child_type: str,
+        expected_types: Union[Type, Tuple[Type[Any], ...]],
+    ) -> Cast:
+        cast_type = self._getCastType(ctx.getChild(0))
+        node = ctx.getChild(2)
+        child_type = child_type.replace(child_type[0], child_type[0].upper(), 1)
+        value = getattr(self, f"visit{child_type}")(node)
+        assert isinstance(value, expected_types)
         return Cast(cast_type=cast_type, value=value)
+
+    def visitCast(self, ctx: OverrideParser.CastContext):
+        cast_node = ctx.getChild(0)
+        if isinstance(cast_node, OverrideParser.PrimitiveCastContext):
+            return self.visitPrimitiveCast(cast_node)
+        elif isinstance(cast_node, OverrideParser.ListCastContext):
+            return self.visitListCast(cast_node)
+        elif isinstance(cast_node, OverrideParser.DictCastContext):
+            return self.visitDictCast(cast_node)
+        elif isinstance(cast_node, OverrideParser.ChoiceCastContext):
+            return self.visitChoiceCast(cast_node)
+        elif isinstance(cast_node, OverrideParser.RangeCastContext):
+            return self.visitRangeCast(cast_node)
+        elif isinstance(cast_node, OverrideParser.IntervalCastContext):
+            return self.visitIntervalCast(cast_node)
+        assert (
+            False
+        ), f"Unexpected cast_node type : {type(cast_node).__name__}, text: {cast_node.getText()}"
 
     def visitOrdering(self, ctx: OverrideParser.OrderingContext) -> Ordering:
         ret = self.visitChildren(ctx)
         assert isinstance(ret, list) and len(ret) == 1
         r = ret[0]
-        assert isinstance(r, (Ordering))
+        assert isinstance(r, Ordering)
         return r
 
     def visitSort(self, ctx: OverrideParser.SortContext) -> Sort:

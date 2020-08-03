@@ -109,12 +109,17 @@ def test_element(value: str, expected: Any) -> None:
         # ordering
         pytest.param("sort(3,2,1)", [1, 2, 3], id="sort(3,2,1)"),
         pytest.param(
+            "sort(a,c,b,reverse=true)", ["c", "b", "a"], id="sort(a,c,b,reverse=true)"
+        ),
+        pytest.param(
             "sort(10)",
             pytest.raises(
                 HydraException, match=re.escape("mismatched input ')' expecting ','")
             ),
             id="sort(10)",
         ),
+        pytest.param("float(sort(3,2,1))", [1.0, 2.0, 3.0], id="float(sort(3,2,1))"),
+        pytest.param("sort(3,2,str(1))", ["1", 2, 3], id="float(sort(3,2,1))"),
     ],
 )
 def test_value(value: str, expected: Any) -> None:
@@ -530,6 +535,7 @@ def test_key(value: str, expected: Any) -> None:
             QuotedString(text="false", quote=Quote.single),
             id="value:bool:quoted",
         ),
+        pytest.param("int('10')", 10, id="int('10')"),
     ],
 )
 def test_primitive(value: str, prefix: str, suffix: str, expected: Any) -> None:
@@ -1108,8 +1114,10 @@ def test_ordering(value: str, expected: str) -> None:
         ),
         pytest.param("range(1,20,2)", RangeSweep(start=1, stop=20, step=2), id="range"),
         pytest.param(
-            "interval(0.5, 1.5)", IntervalSweep(start=0.5, end=1.5,), id="interval"
+            "interval(0.0, 1.0)", IntervalSweep(start=0.0, end=1.0), id="interval"
         ),
+        # TODO : test list
+        # TODO : test dict
     ],
 )
 def test_type_cast(value: str, expected_value: Any, cast_type: CastType) -> None:
@@ -1137,8 +1145,10 @@ def test_type_cast(value: str, expected_value: Any, cast_type: CastType) -> None
         else:
             assert False
 
-    ret1 = OverridesParser.parse_rule(cast(value, space=False), "cast")
-    ret2 = OverridesParser.parse_rule(cast(value, space=True), "cast")
+    cast_str = cast(value, space=False)
+    ret1 = OverridesParser.parse_rule(cast_str, "cast")
+    cast_str = cast(value, space=True)
+    ret2 = OverridesParser.parse_rule(cast_str, "cast")
     assert ret1 == Cast(cast_type=cast_type, value=expected_value)
     assert ret2 == Cast(cast_type=cast_type, value=expected_value)
 
@@ -1442,7 +1452,8 @@ class CastResults:
 def test_cast_conversions(value: Any, expected_value: Any) -> None:
     for cast_type in (CastType.INT, CastType.FLOAT, CastType.BOOL, CastType.STR):
         field = cast_type.name.lower()
-        ret = OverridesParser.parse_rule(f"{field}({value})", "cast")
+        cast_str = f"{field}({value})"
+        ret = OverridesParser.parse_rule(cast_str, "cast")
         expected = getattr(expected_value, field)
         if isinstance(expected, RaisesContext):
             with expected:

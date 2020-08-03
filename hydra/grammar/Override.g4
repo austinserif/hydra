@@ -21,10 +21,8 @@ package: (ID | DOT_PATH);                       // db, hydra.launcher
 
 value:
       element
-    | simpleChoiceSweep                         // a,b,c
+    | simpleChoiceSweep                         // a,b,c  # TODO: push into ChoiceSweep
     | sweep                                     // choice(a,b,c), range(1,10,2), interval(0,3)
-    | cast
-    | ordering
 ;
 
 sweep: choiceSweep | rangeSweep | intervalSweep | taggedSweep;
@@ -34,14 +32,11 @@ element:
     | dictValue
 ;
 
-cast : ('int' | 'float' | 'str' | 'bool') '(' value ')';
-
 ordering: sort | shuffle;
 sort :
     'sort' '(' (
           primitive (',' primitive)+
         | sweep
-        | cast
         | 'list' '=' '[' (primitive (',' primitive)*)? ']'
         )
         (',' 'reverse' '=' BOOL)?
@@ -50,7 +45,8 @@ sort :
 
 shuffle:
     'shuffle' '('
-        (value (',' value)* | 'list' '=' '[' value (',' value)* ']')
+          primitive (',' primitive)+
+        | 'list' '=' '[' (primitive (',' primitive)*)? ']'
     ')'
 ;
 
@@ -83,7 +79,8 @@ taggedSweep:
 ;
 
 primitive:
-       QUOTED_VALUE                                 // 'hello world', "hello world"
+       primitiveCast
+    |  QUOTED_VALUE                                 // 'hello world', "hello world"
     | (   ID                                        // foo_10
         | NULL                                      // null, NULL
         | INT                                       // 0, 10, -20, 1_000_000
@@ -96,13 +93,29 @@ primitive:
         | '='
     )+;
 
+
 number: INT | FLOAT;
 tagList : ID (',' ID)*;
 
-listValue: '[' (element(',' element)*)? ']';    // [], [1,2,3], [a,b,[1,2]]
-dictValue: '{'                                  // {}, {a:10,b:20}
-    (ID ':' element (',' ID ':' element)*)?
-'}';
+
+listValue:
+      '[' (element(',' element)*)? ']' // [], [1,2,3], [a,b,[1,2]]
+    | listCast                         // float([1,2,3])
+;
+
+dictValue:
+      '{' (ID ':' element (',' ID ':' element)*)? '}'   // {}, {a:10,b:20}
+    |  dictCast                                         // float({a:10,b:20})
+;
+
+cast : primitiveCast | dictCast | listCast | choiceCast | rangeCast | intervalCast;
+
+primitiveCast: ('int' | 'float' | 'str' | 'bool') '(' primitive ')';
+listCast: ('int' | 'float' | 'str' | 'bool') '(' listValue ')';
+dictCast: ('int' | 'float' | 'str' | 'bool') '(' dictValue ')';
+choiceCast: ('int' | 'float' | 'str' | 'bool') '(' (simpleChoiceSweep | choiceSweep) ')';
+rangeCast: ('int' | 'float' | 'str' | 'bool') '(' rangeSweep ')';
+intervalCast: ('int' | 'float' | 'str' | 'bool') '(' intervalSweep ')';
 
 // Types
 fragment DIGIT: [0-9_];

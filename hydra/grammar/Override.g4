@@ -32,22 +32,25 @@ sweep:
     | simpleChoiceSweep                         // a,b,c
     | rangeSweep                                // range(1,10), range(0,3,0.5)
     | intervalSweep                             // interval(0,3)
-    | taggedSweep                               // tag(tag1,choice(a,b,c))
-    | sweepSort                                 // sort(a,b,c), sort(choice(a,b,c))
-
 ;
 
 
 simpleChoiceSweep:
       element (',' element)+                        // value1,value2,value3
-    | choiceCast                                    // str(1,2,3)
+    | simpleChoiceSweepCast                         // str(1,2,3)
+    | simpleChoiceSweepSort                         // sort(c,b,a)
+
 ;
 
 choiceSweep:
     'choice' '('
-        (element (',' element)* | 'list' '=' '[' element (',' element)* ']')
+          (element (',' element)*                   // choice(a,b,c)
+        | 'list' '='                                // choice(list=[a,b,c])
+            '[' element (',' element)* ']')
     ')'
-    | choiceCast
+    | choiceSweepCast                               // float(choice(1,2))
+    | choiceSweepSort                               // sort(choice(a,b,c))
+    | taggedChoiceSweep                             // tag(log,choice(1,10,100))
 ;
 
 rangeSweep:                                         // range(start,stop,[step])
@@ -55,6 +58,9 @@ rangeSweep:                                         // range(start,stop,[step])
         ('start' '=')? number ','                   // range(start=1,stop=10,step=2)
         ('stop' '=')? number
         (',' ('step' '=')? number)?')'
+    | rangeSweepCast
+    | rangeSweepSort
+    | taggedRangeSweep
 ;
 
 intervalSweep:                                      // interval(start,end)
@@ -62,13 +68,25 @@ intervalSweep:                                      // interval(start,end)
         ('start' '=' )? number ','
         ('end' '='   )? number
     ')'
+    | taggedIntervalSweep
 ;
 
 taggedSweep:
-    'tag' '('
-        (tagList ',' | 'tags' '=' '[' tagList ']' ',')? ('sweep' '=')? sweep
-    ')'
+    taggedChoiceSweep
+    | taggedRangeSweep
+    | taggedIntervalSweep
 ;
+
+taggedChoiceSweep:
+    'tag' '(' (tagList ',')? ('sweep' '=')? choiceSweep ')';
+
+taggedRangeSweep:
+    'tag' '(' (tagList ',')? ('sweep' '=')? rangeSweep ')';
+
+taggedIntervalSweep:
+    'tag' '(' (tagList ',')? ('sweep' '=')? intervalSweep ')';
+
+tagList: ID (',' ID)* | 'tags' '=' '[' (ID (',' ID)*)? ']';
 
 primitive:
        primitiveCast
@@ -87,7 +105,7 @@ primitive:
 
 
 number: INT | FLOAT;
-tagList : ID (',' ID)*;
+
 
 
 listValue:
@@ -101,20 +119,38 @@ dictValue:
     | dictCast                                         // float({a:10,b:20})
 ;
 
-cast : primitiveCast | dictCast | listCast | choiceCast | rangeCast | intervalCast;
+cast :
+      primitiveCast
+    | dictCast
+    | listCast
+    | choiceSweepCast
+    | simpleChoiceSweepCast
+    | rangeSweepCast
+    | intervalSweepCast
+;
 
 primitiveCast: ('int' | 'float' | 'str' | 'bool') '(' primitive ')';
 listCast: ('int' | 'float' | 'str' | 'bool') '(' listValue ')';
 dictCast: ('int' | 'float' | 'str' | 'bool') '(' dictValue ')';
 
-choiceCast: ('int' | 'float' | 'str' | 'bool') '(' (simpleChoiceSweep | choiceSweep) ')';
-rangeCast: ('int' | 'float' | 'str' | 'bool') '(' rangeSweep ')';
-intervalCast: ('int' | 'float' | 'str' | 'bool') '(' intervalSweep ')';
+simpleChoiceSweepCast: ('int' | 'float' | 'str' | 'bool') '(' simpleChoiceSweep ')';
+choiceSweepCast: ('int' | 'float' | 'str' | 'bool') '(' choiceSweep ')';
+rangeSweepCast: ('int' | 'float' | 'str' | 'bool') '(' rangeSweep ')';
+intervalSweepCast: ('int' | 'float' | 'str' | 'bool') '(' intervalSweep ')';
 
 ordering: sort | shuffle;
 sort : listSort | sweepSort;
 listSort: 'sort' '(' ('list' '=')? listValue (',' 'reverse' '=' BOOL)? ')';
-sweepSort: 'sort' '(' ('sweep' '=')? sweep (',' 'reverse' '=' BOOL)? ')';
+
+sweepSort:
+      simpleChoiceSweepSort
+    | choiceSweepSort
+    | rangeSweepSort
+;
+
+simpleChoiceSweepSort: 'sort' '(' ('sweep' '=')? simpleChoiceSweep (',' 'reverse' '=' BOOL)? ')';
+choiceSweepSort: 'sort' '(' ('sweep' '=')? choiceSweep (',' 'reverse' '=' BOOL)? ')';
+rangeSweepSort: 'sort' '(' ('sweep' '=')? rangeSweep (',' 'reverse' '=' BOOL)? ')';
 
 shuffle:
     'shuffle' '('

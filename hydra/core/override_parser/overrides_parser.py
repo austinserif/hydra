@@ -269,7 +269,10 @@ class Sort(Ordering):
     @abstractmethod
     def order(self) -> Union[List[ParsedElementType], ChoiceSweep, RangeSweep]:
         def _sorted(lst: List[Any]) -> List[Any]:
-            return sorted(lst, reverse=self.reverse)
+            try:
+                return sorted(lst, reverse=self.reverse)
+            except TypeError as e:
+                raise HydraException(f"Error sorting: {e}") from e
 
         if isinstance(self.list, ChoiceSweep):
             ret = copy(self.list)
@@ -285,7 +288,7 @@ class Sort(Ordering):
 class Shuffle(Ordering):
     @abstractmethod
     def order(self) -> Union[List[ParsedElementType], ChoiceSweep, RangeSweep]:
-        ...
+        assert False  # TODO
 
 
 @dataclass
@@ -645,18 +648,16 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
             assert False
         return ret
 
-    def visitValue(self, ctx: OverrideParser.ValueContext) -> ParsedElementType:
-        child_ret = self.visitChildren(ctx)
-        if len(child_ret) == 0:
+    def visitValue(
+        self, ctx: OverrideParser.ValueContext
+    ) -> Union[ChoiceSweep, RangeSweep, IntervalSweep, ParsedElementType]:
+        if self.is_matching_terminal(ctx, "<EOF>"):
             return ""
-        else:
-            assert len(child_ret) == 1
-            ret = child_ret[0]
-            if isinstance(ret, Ordering):
-                ret = ret.order()
-            if isinstance(ret, Cast):
-                ret = ret.convert()
-            return ret  # type: ignore
+        if ctx.element() is not None:
+            return self.visitElement(ctx.element())
+        if ctx.sweep() is not None:
+            return self.visitSweep(ctx.sweep())
+        assert False
 
     def visitOverride(self, ctx: OverrideParser.OverrideContext) -> Override:
         override_type = OverrideType.CHANGE
@@ -735,9 +736,26 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
     def visitSweep(
         self, ctx: OverrideParser.SweepContext
     ) -> Union[ChoiceSweep, RangeSweep, IntervalSweep]:
-        return self.visitChildren(ctx)[0]
+        if ctx.simpleChoiceSweep() is not None:
+            return self.visitSimpleChoiceSweep(ctx.simpleChoiceSweep())
+        elif ctx.choiceSweep() is not None:
+            return self.visitChoiceSweep(ctx.choiceSweep())
+        elif ctx.rangeSweep() is not None:
+            return self.visitRangeSweep(ctx.rangeSweep())
+        elif ctx.intervalSweep() is not None:
+            return self.visitIntervalSweep(ctx.intervalSweep())
+        assert False
 
     def visitRangeSweep(self, ctx: OverrideParser.RangeSweepContext) -> RangeSweep:
+        if ctx.rangeSweepCast() is not None:
+            ret = self.visitRangeSweepCast(ctx.rangeSweepCast())
+            return ret.convert()
+        if ctx.rangeSweepSort() is not None:
+            ret = self.visitRangeSweepSort(ctx.rangeSweepSort())
+            return ret.order()
+        if ctx.taggedRangeSweep():
+            return self.visitTaggedRangeSweep(ctx.taggedRangeSweep())
+
         assert self.is_matching_terminal(ctx.getChild(0), "range")
         assert self.is_matching_terminal(ctx.getChild(1), "(")
         start = self.visitNumber(ctx.number(0))
@@ -752,6 +770,9 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
     def visitIntervalSweep(
         self, ctx: OverrideParser.IntervalSweepContext
     ) -> IntervalSweep:
+        if ctx.taggedIntervalSweep() is not None:
+            return self.visitTaggedIntervalSweep(ctx.taggedIntervalSweep())
+
         assert self.is_matching_terminal(ctx.getChild(0), "interval")
         start = self.visitNumber(ctx.number(0))
         end = self.visitNumber(ctx.number(1))
@@ -760,22 +781,29 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
     def visitSimpleChoiceSweep(
         self, ctx: OverrideParser.SimpleChoiceSweepContext
     ) -> ChoiceSweep:
-        if ctx.choiceCast():
-            ret = self.visitChoiceCast(ctx.choiceCast())
+        if ctx.simpleChoiceSweepCast():
+            ret = self.visitSimpleChoiceSweepCast(ctx.simpleChoiceSweepCast())
             return ret.convert()
+        if ctx.simpleChoiceSweepSort():
+            ret = self.visitSimpleChoiceSweepSort(ctx.simpleChoiceSweepSort())
+            return ret.order()
         else:
             ret = []
             for child in ctx.getChildren(
                 predicate=lambda x: not self.is_matching_terminal(x, ",")
             ):
-                ret.append(self.visitValue(child))
+                ret.append(self.visitElement(child))
             return ChoiceSweep(simple_form=True, list=ret)
 
     def visitChoiceSweep(self, ctx: OverrideParser.ChoiceSweepContext) -> ChoiceSweep:
-
-        if ctx.choiceCast():
-            ret = self.visitChoiceCast(ctx.choiceCast())
+        if ctx.choiceSweepCast() is not None:
+            ret = self.visitChoiceSweepCast(ctx.choiceSweepCast())
             return ret.convert()
+        if ctx.choiceSweepSort() is not None:
+            ret = self.visitChoiceSweepSort(ctx.choiceSweepSort())
+            return ret.order()
+        if ctx.taggedChoiceSweep() is not None:
+            return self.visitTaggedChoiceSweep(ctx.taggedChoiceSweep())
 
         # TODO: simplify
         def collect(start: int, end: int, simple_form: bool) -> ChoiceSweep:
@@ -808,17 +836,45 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
 
     def visitTagList(self, ctx: OverrideParser.TagListContext) -> Set[str]:
         ret = set()
+        start = 0
+        stop = None
+        if self.is_matching_terminal(ctx.getChild(0), "tags"):
+            start = 3
+            stop = -1
 
-        for child in ctx.getChildren(
-            predicate=lambda x: not self.is_matching_terminal(x, ",")
-        ):
-            ret.add(child.getText().strip())
+        for child in ctx.children[start:stop]:
+            if not self.is_matching_terminal(child, ","):
+                ret.add(child.getText())
 
         return ret
 
     def visitTaggedSweep(self, ctx: OverrideParser.TaggedSweepContext) -> Sweep:
         taglist = ctx.tagList()
         sweep = self.visitSweep(ctx.sweep())
+        sweep.tags = self.visitTagList(taglist) if taglist is not None else set()
+        return sweep
+
+    def visitTaggedChoiceSweep(
+        self, ctx: OverrideParser.TaggedChoiceSweepContext
+    ) -> ChoiceSweep:
+        sweep = self.visitChoiceSweep(ctx.choiceSweep())
+        taglist = ctx.tagList()
+        sweep.tags = self.visitTagList(taglist) if taglist is not None else set()
+        return sweep
+
+    def visitTaggedIntervalSweep(
+        self, ctx: OverrideParser.TaggedIntervalSweepContext
+    ) -> IntervalSweep:
+        sweep = self.visitIntervalSweep(ctx.intervalSweep())
+        taglist = ctx.tagList()
+        sweep.tags = self.visitTagList(taglist) if taglist is not None else set()
+        return sweep
+
+    def visitTaggedRangeSweep(
+        self, ctx: OverrideParser.TaggedRangeSweepContext
+    ) -> RangeSweep:
+        sweep = self.visitRangeSweep(ctx.rangeSweep())
+        taglist = ctx.tagList()
         sweep.tags = self.visitTagList(taglist) if taglist is not None else set()
         return sweep
 
@@ -843,16 +899,20 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
     def visitDictCast(self, ctx: OverrideParser.DictCastContext) -> Cast:
         return self._cast(ctx, "dictValue", dict)
 
-    def visitChoiceCast(self, ctx: OverrideParser.ChoiceCastContext) -> Cast:
-        if ctx.simpleChoiceSweep() is not None:
-            return self._cast(ctx, "simpleChoiceSweep", ChoiceSweep)
-        else:
-            return self._cast(ctx, "choiceSweep", ChoiceSweep)
+    def visitSimpleChoiceSweepCast(
+        self, ctx: OverrideParser.SimpleChoiceSweepCastContext
+    ) -> Cast:
+        return self._cast(ctx, "simpleChoiceSweep", ChoiceSweep)
 
-    def visitRangeCast(self, ctx: OverrideParser.RangeCastContext) -> Cast:
+    def visitChoiceSweepCast(self, ctx: OverrideParser.ChoiceSweepCastContext) -> Cast:
+        return self._cast(ctx, "choiceSweep", ChoiceSweep)
+
+    def visitRangeSweepCast(self, ctx: OverrideParser.RangeSweepCastContext) -> Cast:
         return self._cast(ctx, "rangeSweep", RangeSweep)
 
-    def visitIntervalCast(self, ctx: OverrideParser.IntervalCastContext) -> Cast:
+    def visitIntervalSweepCast(
+        self, ctx: OverrideParser.IntervalSweepCastContext
+    ) -> Cast:
         return self._cast(ctx, "intervalSweep", IntervalSweep)
 
     def _cast(
@@ -876,12 +936,14 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
             return self.visitListCast(cast_node)
         elif isinstance(cast_node, OverrideParser.DictCastContext):
             return self.visitDictCast(cast_node)
-        elif isinstance(cast_node, OverrideParser.ChoiceCastContext):
-            return self.visitChoiceCast(cast_node)
-        elif isinstance(cast_node, OverrideParser.RangeCastContext):
-            return self.visitRangeCast(cast_node)
-        elif isinstance(cast_node, OverrideParser.IntervalCastContext):
-            return self.visitIntervalCast(cast_node)
+        elif isinstance(cast_node, OverrideParser.ChoiceSweepCastContext):
+            return self.visitChoiceSweepCast(cast_node)
+        elif isinstance(cast_node, OverrideParser.SimpleChoiceSweepCastContext):
+            return self.visitSimpleChoiceSweepCast(cast_node)
+        elif isinstance(cast_node, OverrideParser.RangeSweepCastContext):
+            return self.visitRangeSweepCast(cast_node)
+        elif isinstance(cast_node, OverrideParser.IntervalSweepCastContext):
+            return self.visitIntervalSweepCast(cast_node)
         assert (
             False
         ), f"Unexpected cast_node type : {type(cast_node).__name__}, text: {cast_node.getText()}"
@@ -901,11 +963,32 @@ class CLIVisitor(OverrideVisitor):  # type: ignore
         return Sort(list=ret, reverse=reverse)
 
     def visitSweepSort(self, ctx: OverrideParser.SweepSortContext):
+        return self.visitChildren(ctx)[0]
+
+    def visitRangeSweepSort(self, ctx: OverrideParser.RangeSweepSortContext) -> Sort:
         if self.is_matching_terminal(ctx.getChild(-4), "reverse"):
             reverse = ctx.getChild(-2).getText().lower() == "true"
         else:
             reverse = False
-        return Sort(list=self.visitSweep(ctx.sweep()), reverse=reverse)
+        return Sort(list=self.visitRangeSweep(ctx.rangeSweep()), reverse=reverse)
+
+    def visitSimpleChoiceSweepSort(
+        self, ctx: OverrideParser.SimpleChoiceSweepSortContext
+    ) -> Sort:
+        if self.is_matching_terminal(ctx.getChild(-4), "reverse"):
+            reverse = ctx.getChild(-2).getText().lower() == "true"
+        else:
+            reverse = False
+        return Sort(
+            list=self.visitSimpleChoiceSweep(ctx.simpleChoiceSweep()), reverse=reverse
+        )
+
+    def visitChoiceSweepSort(self, ctx: OverrideParser.ChoiceSweepSortContext):
+        if self.is_matching_terminal(ctx.getChild(-4), "reverse"):
+            reverse = ctx.getChild(-2).getText().lower() == "true"
+        else:
+            reverse = False
+        return Sort(list=self.visitChoiceSweep(ctx.choiceSweep()), reverse=reverse)
 
 
 class HydraErrorListener(ErrorListener):  # type: ignore
